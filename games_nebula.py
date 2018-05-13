@@ -5,13 +5,32 @@ import os
 import sys
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, GdkPixbuf
+from gi.repository import Gtk, GdkPixbuf, Gdk
 import gettext
 
 from modules.set_nebula_dir import set_nebula_dir
 from modules.setup_cookies import setup_cookies
 from modules.pygogdownloader import Pygogdownloader
 from modules_gui import tab_gogcom, tab_goglib, pygogauth
+
+style_provider = Gtk.CssProvider()
+
+css = b"""
+.black_background {
+    background: black;
+}
+.lighter_background {
+    background: lighter(@theme_bg_color);
+}
+"""
+
+style_provider.load_from_data(css)
+
+Gtk.StyleContext.add_provider_for_screen(
+    Gdk.Screen.get_default(),
+    style_provider,
+    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+)
 
 nebula_dir = set_nebula_dir()
 
