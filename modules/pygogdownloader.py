@@ -139,15 +139,21 @@ class Pygogdownloader:
         prod = self.api.product(game_id)
         prod.update_galaxy(expand=True)
 
-        installer_id = 0
+        installer_id_linux_en = -1
+        installer_id_linux_lang = -1
+        installer_id_windows = 0
         for i in range(len(prod.installers)):
             installer = prod.installers[i]
             if installer.os == 'windows':
-                if installer.language == lang: installer_id = i
+                if installer.language == lang: installer_id_windows = i
             elif installer.os == 'linux':
-                if installer.language == 'en': installer_id = i
-                elif installer.language == lang: installer_id = i
+                if installer.language == 'en': installer_id_linux_en = i
+                elif installer.language == lang: installer_id_linux_lang = i
 
+        if installer_id_linux_lang != -1: installer_id = installer_id_linux_lang
+        elif installer_id_linux_en != -1: installer_id = installer_id_linux_en
+        else: installer_id = installer_id_windows
+        
         for fileobj in prod.installers[installer_id].files:
             fileobj.update_chunklist()
             file_name = fileobj.filename
