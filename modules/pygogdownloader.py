@@ -2,6 +2,8 @@
 #                       or: Full size (all parts) - Downloaded - Percentage - Speed
 # TODO Download dlcs
 # TODO Download language specific installers in separate directory
+# TODO Add to db supported languages (?)
+# TODO Add to db supported tags (?)
 
 import os
 import sys
@@ -150,17 +152,22 @@ class Pygogdownloader:
                 if installer.language == 'en': installer_id_linux_en = i
                 elif installer.language == lang: installer_id_linux_lang = i
 
-        if installer_id_linux_lang != -1: installer_id = installer_id_linux_lang
-        elif installer_id_linux_en != -1: installer_id = installer_id_linux_en
-        else: installer_id = installer_id_windows
-        
+        if installer_id_linux_lang != -1:
+            installer_id = installer_id_linux_lang
+        elif installer_id_linux_en != -1:
+            installer_id = installer_id_linux_en
+            lang = 'en'
+        else:
+            installer_id = installer_id_windows
+            if installer_id_windows == 0: lang = 'en'
+
         for fileobj in prod.installers[installer_id].files:
             fileobj.update_chunklist()
             file_name = fileobj.filename
             file_md5 = fileobj.md5
-            if not os.path.exists(dest_dir + game_name):
-                os.makedirs(dest_dir + game_name)
-            dest_path = dest_dir + game_name + '/' + file_name
+            download_dir = dest_dir + game_name + '/' + lang + '/'
+            if not os.path.exists(download_dir): os.makedirs(download_dir)
+            dest_path = download_dir + file_name
             download_link = fileobj.securelink
             self.get_file(download_link, dest_path, file_md5)
 
