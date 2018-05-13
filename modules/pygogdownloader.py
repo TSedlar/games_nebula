@@ -12,8 +12,15 @@ import gogapi.api
 from gogapi.download import Download
 from urllib.request import Request as urllib_request
 from urllib.request import urlopen as urllib_urlopen
+import gettext
 
+from modules.set_nebula_dir import set_nebula_dir
 from modules.gamesdb import GamesDB
+
+nebula_dir = set_nebula_dir()
+gettext.bindtextdomain('games_nebula', nebula_dir + '/locale')
+gettext.textdomain('games_nebula')
+_ = gettext.gettext
 
 CONFIG_PATH = os.getenv('HOME') + '/.config/games_nebula/'
 
@@ -58,11 +65,20 @@ class Pygogdownloader:
 
     def request_games_data(self):
 
-        ids_list = self.get_ids_list()
+        def is_native(prod):
 
+            for i in range(len(prod.installers)):
+                installer = prod.installers[i]
+                if installer.os == 'linux':
+                    return True
+
+            return False
+
+        ids_list = self.get_ids_list()
         games_list = []
 
         for game_id in ids_list:
+
             prod = self.api.product(game_id)
             prod.update_galaxy(expand=True)
 
@@ -71,7 +87,8 @@ class Pygogdownloader:
 
                 name = prod.slug
                 title = prod.title
-                banner = 'https:' + ''.join(prod.image_logo.split('_glx_logo'))
+                native = str(is_native(prod))
+                logo = 'https:' + ''.join(prod.image_logo.split('_glx_logo'))
                 icon = 'https:' + prod.image_icon
                 dlcs = prod.dlcs
 
@@ -85,6 +102,149 @@ class Pygogdownloader:
                         else:
                             dlcs_str += str(dlcs[i].id)
 
-                games_list.append((name, game_id, title, banner, icon, dlcs_str))
+                games_list.append((name, game_id, title, native, logo, icon, dlcs_str))
 
         self.gamesdb.write(games_list)
+
+    def write_md5_to_file(self, file_path, md5):
+
+        f = open(file_path + '.md5', 'w')
+        f.write(md5)
+        f.close()
+
+    def recalculate_md5(self, file_path):
+
+        md5 = hashlib.md5()
+        f = open(file_path, 'rb')
+        chunk_size = 4096
+
+        while True:
+
+            chunk = f.read(chunk_size)
+
+            if not chunk:
+                break
+
+            md5.update(chunk)
+
+        return md5.hexdigest()
+
+    def download(self, game_name, lang, dest_dir):
+
+        if dest_dir[-1] != '/':
+            dest_dir += '/'
+
+        games_data = self.get_games_data()
+        game_id = games_data[game_name][0]
+        prod = self.api.product(game_id)
+        prod.update_galaxy(expand=True)
+
+        installer_id = 0
+        for i in range(len(prod.installers)):
+            installer = prod.installers[i]
+            if installer.os == 'windows':
+                if installer.language == lang: installer_id = i
+            elif installer.os == 'linux':
+                if installer.language == 'en': installer_id = i
+                elif installer.language == lang: installer_id = i
+
+        for fileobj in prod.installers[installer_id].files:
+            fileobj.update_chunklist()
+            file_name = fileobj.filename
+            file_md5 = fileobj.md5
+            if not os.path.exists(dest_dir + game_name):
+                os.makedirs(dest_dir + game_name)
+            dest_path = dest_dir + game_name + '/' + file_name
+            download_link = fileobj.securelink
+            self.get_file(download_link, dest_path, file_md5)
+
+    def get_file(self, url, file_path, file_md5):
+
+        req = urllib_request(url)
+        file_to_download = urllib_urlopen(req)
+        file_size = float(file_to_download.getheader('Content-Length'))
+
+        def md5_exists(old_file_md5):
+
+            if file_md5 == old_file_md5:
+                print(_("Already fully downloaded. Skipping."))
+            else:
+                print(_("File exists, but new version available"))
+                #TODO Decide what to do: keep old or download new version
+
+        if not os.path.exists(file_path):
+
+            self.write_md5_to_file(file_path, file_md5)
+
+            f = open(file_path, 'wb')
+            downloaded = 0
+
+        else:
+
+            downloaded = os.path.getsize(file_path)
+
+            if downloaded >= file_size:
+
+                if os.path.exists(file_path + '.md5'):
+
+                    old_file_md5 = open(file_path + '.md5', 'r').read()
+                    md5_exists(old_file_md5)
+
+                else:
+
+                    print(_("Already exists. MD5 unknown. Recalculating MD5."))
+
+                    old_file_md5 = self.recalculate_md5(file_path)
+                    self.write_md5_to_file(file_path, old_file_md5)
+                    md5_exists(old_file_md5)
+
+                return
+
+            else:
+
+                if os.path.exists(file_path + '.md5'):
+
+                    old_file_md5 = open(file_path + '.md5', 'r').read()
+
+                    if file_md5 == old_file_md5:
+
+                        print(_("File partially downloaded. Resuming download."))
+                        req.add_header('Range','bytes=%d-' % downloaded)
+                        file_to_download = urllib_urlopen(req)
+                        f = open(file_path, 'ab')
+
+                    else:
+
+                        print(_("File partially downloaded, but it's no longer ") +
+                                _("available on server. Donwloading new version."))
+
+                        self.write_md5_to_file(file_path, file_md5)
+
+                        f = open(file_path, 'wb')
+                        downloaded = 0
+                else:
+
+                    print(_("File partially downloaded, but MD5 unknown.") +
+                            _(" Re-downloading file."))
+
+                    self.write_md5_to_file(file_path, file_md5)
+
+                    f = open(file_path, 'wb')
+                    downloaded = 0
+
+        block_size = 8192
+
+        while True:
+
+            file_chunk = file_to_download.read(block_size)
+
+            if not file_chunk:
+                break
+
+            downloaded += len(file_chunk)
+            f.write(file_chunk)
+
+            # Downloaded MB, %
+            print('%5.2f MB, %3.2f%%' % (downloaded/1048576, downloaded*100./file_size))
+
+        f.close()
